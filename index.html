@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solana AI Client</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Solana AI Voice Chat</h1>
+        <div class="controls">
+            <button id="startBtn">Start Conversation</button>
+            <button id="stopBtn" disabled>End Conversation</button>
+        </div>
+        <div class="status-container">
+            <div class="status">Status: <span id="connectionStatus">Disconnected</span></div>
+            <div class="audio-controls">
+                <label for="volume">Volume:</label>
+                <input type="range" id="volume" min="0" max="1" step="0.1" value="0.7">
+                <div class="audio-indicator" id="audioIndicator"></div>
+            </div>
+        </div>
+        <div class="messages" id="messageLog"></div>
+    </div>
+    
+    <script src="audio.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
