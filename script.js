@@ -3,18 +3,40 @@ let idToken = null;
 let socket = null;
 let sessionId = null;
 let callId = null;
+let lastPingTime = null;
 
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
 const connectionStatus = document.getElementById('connectionStatus');
 const messageLog = document.getElementById('messageLog');
+const statsDisplay = document.getElementById('statsDisplay');
 
 // Initialize the application
 startBtn.addEventListener('click', startConversation);
 stopBtn.addEventListener('click', stopConversation);
 
+// Add debug elements to display metrics
+function updateStats() {
+    if (!statsDisplay) return;
+    
+    // Create stats display if it doesn't exist
+    if (!document.getElementById('statsDisplay')) {
+        const statsContainer = document.createElement('div');
+        statsContainer.id = 'statsDisplay';
+        statsContainer.className = 'stats-container';
+        document.querySelector('.container').appendChild(statsContainer);
+    }
+    
+    // Update stats
+    document.getElementById('statsDisplay').innerHTML = `
+        <div>RTT: ${currentRtt.toFixed(0)}ms</div>
+        <div>Buffer: ${(audioBufferHealth * 100).toFixed(0)}%</div>
+        <div>Playback: ${currentPlaybackRate.toFixed(2)}x</div>
+    `;
+}
 
-
+// Set up stats update interval
+setInterval(updateStats, 500);
 
 // Get anonymous auth token from Firebase
 async function getAuthToken() {
@@ -103,7 +125,7 @@ function handleSocketMessage(data) {
         
         switch (message.type) {
             case 'initialize':
-                sessionId = message.session_id;
+                sessionId = message.content.session_id;
                 sendClientLocationState();
                 sendCallConnect();
                 break;
@@ -124,13 +146,19 @@ function handleSocketMessage(data) {
             case 'chat':
                 if (message.content && message.content.messages && message.content.messages.length > 0) {
                     message.content.messages.forEach(msg => {
-                        addToMessageLog(`Chat message: ${msg.text || 'Empty'}`);
+                        if (msg.content) {
+                            addToMessageLog(`Chat message: ${msg.content}`);
+                        }
                     });
                 }
                 break;
                 
             case 'ping_response':
-                // Silently handle ping responses
+                // Calculate RTT
+                if (lastPingTime) {
+                    const rtt = Date.now() - lastPingTime;
+                    updateRTT(rtt);
+                }
                 break;
                 
             default:
@@ -179,7 +207,7 @@ function sendCallConnect() {
         call_id: null,
         request_id: requestId,
         content: {
-            sample_rate: 24000, // Updated from 16000 to 24000
+            sample_rate: 24000,
             audio_codec: 'none',
             reconnect: false,
             is_private: false,
@@ -221,7 +249,7 @@ function sendCallConnect() {
     }
 }
 
-// Send ping to keep connection alive
+// Send ping to keep connection alive and measure RTT
 function sendPing() {
     if (!socket || !sessionId) return;
     
@@ -233,6 +261,7 @@ function sendPing() {
         content: 'ping'
     };
     
+    lastPingTime = Date.now();
     sendSocketMessage(message);
 }
 
@@ -256,8 +285,25 @@ function sendSocketMessage(message) {
 
 // Stop the conversation
 function stopConversation() {
+    // First disconnect the call if active
+    if (callId) {
+        const disconnectMessage = {
+            type: 'call_disconnect',
+            session_id: sessionId,
+            call_id: callId,
+            request_id: generateUUID(),
+            content: {
+                reason: 'user_request'
+            }
+        };
+        
+        sendSocketMessage(disconnectMessage);
+    }
+    
+    // Stop audio processing
     stopAudioStream();
     
+    // Close WebSocket
     if (socket) {
         socket.close();
         socket = null;
