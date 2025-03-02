@@ -4,19 +4,12 @@ let audioInput = null;
 let audioProcessor = null;
 let scriptProcessor = null; // For fallback
 let pingInterval = null;
-let activityCheckInterval = null; // New interval for activity checking
 let audioStartTime = null;
-let lastActivityTime = 0; // Track when we last sent any data
 let volumeControl = null;
 let audioIndicator = null;
 let gainNode = null;
 let sampleRate = 24000;
 let isRecording = false;
-
-// Network and connection tracking
-let lastPingTime = null;
-const PING_INTERVAL_MS = 1000; // Regular ping interval
-const MAX_IDLE_TIME_MS = 2000; // Force ping if no activity for 2 seconds
 
 // Network and buffer health tracking
 let networkRttHistory = [];
@@ -145,15 +138,9 @@ async function startAudioStream() {
         
         isRecording = true;
         audioStartTime = Date.now();
-        lastActivityTime = Date.now();
         
-        // Set up regular ping interval
-        if (pingInterval) clearInterval(pingInterval);
-        pingInterval = setInterval(sendPing, PING_INTERVAL_MS);
-        
-        // Set up activity check interval (more frequent)
-        if (activityCheckInterval) clearInterval(activityCheckInterval);
-        activityCheckInterval = setInterval(checkActivity, 500);
+        // Send ping every second to keep connection alive and measure RTT
+        pingInterval = setInterval(sendPing, 1000);
         
         addToMessageLog("Microphone connected - audio streaming active");
         updateStatus("Listening...");
@@ -229,11 +216,6 @@ function stopAudioStream() {
         pingInterval = null;
     }
     
-    if (activityCheckInterval) {
-        clearInterval(activityCheckInterval);
-        activityCheckInterval = null;
-    }
-    
     if (audioProcessor) {
         try {
             audioProcessor.port.postMessage({
@@ -305,37 +287,6 @@ function sendAudioData(int16Array) {
     };
     
     sendSocketMessage(message);
-    
-    // Update last activity time
-    lastActivityTime = Date.now();
-}
-
-// Send ping to keep connection alive
-function sendPing() {
-    if (!socket || !sessionId) return;
-    
-    const message = {
-        type: 'ping',
-        session_id: sessionId,
-        call_id: callId,
-        request_id: generateUUID(),
-        content: 'ping'
-    };
-    
-    lastPingTime = Date.now();
-    lastActivityTime = Date.now(); // Count ping as activity
-    
-    sendSocketMessage(message);
-    console.log("Sent ping to keep connection alive");
-}
-
-// Check for activity and force a ping if needed
-function checkActivity() {
-    const now = Date.now();
-    if (now - lastActivityTime > MAX_IDLE_TIME_MS) {
-        console.log(`No activity for ${(now - lastActivityTime)/1000}s, sending forced ping`);
-        sendPing();
-    }
 }
 
 // Handle incoming audio data
@@ -376,20 +327,12 @@ function handleAudioData(base64Audio) {
         
         if (audioProcessor) {
             // Use AudioWorklet for playback
-            try {
-                audioProcessor.port.postMessage({
-                    type: 'addOutputBuffer',
-                    data: {
-                        buffer: floatArray
-                    }
-                });
-            } catch (e) {
-                console.warn("Error sending to AudioWorklet, falling back:", e);
-                audioQueue.push(floatArray);
-                if (!isPlaying) {
-                    playNextAudio();
+            audioProcessor.port.postMessage({
+                type: 'addOutputBuffer',
+                data: {
+                    buffer: floatArray
                 }
-            }
+            });
         } else {
             // Use fallback method (queuing for playback)
             audioQueue.push(floatArray);
